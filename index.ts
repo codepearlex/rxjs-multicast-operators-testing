@@ -58,10 +58,12 @@ if (false) {
 }
 
 const waitUntilComplete = function<T>(signal: Observable<any>) {
-  return (source: Observable<T>) => signal.pipe(
-    last(),
-    switchMap(_ => source),
-  );
+  return (source: Observable<T>) => new Observable<T>(subscriber => {
+    signal.subscribe({
+      complete: () => source.subscribe(subscriber),
+      error: err => subscriber.error(err)
+    });
+  });
 }
 
 
@@ -71,12 +73,15 @@ const delayedObservable = new Observable(subscriber => {
   subscriber.complete();
 });
 
-setInterval(() => console.log('interval tick'), 1000);
+setTimeout(() => console.log('tick 1'), 1000);
+setTimeout(() => console.log('tick 2'), 2000);
 
-delayedObservable.pipe(
-  waitUntilComplete(interval(1000)
-    .pipe(
-      map(v => throwError('new error'))
+delayedObservable
+  .pipe(
+    waitUntilComplete(interval(1000)
+      .pipe(
+        map(v => throwError('new error'))
+      )
     )
   )
-).subscribe(r => console.log('r', r));
+  .subscribe({next: r => console.log('r', r), error: err => console.error('got error', err)});
