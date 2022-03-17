@@ -1,5 +1,5 @@
-import { from, interval, Observable, of, Subject, throwError } from "rxjs";
-import { mapTo, pipe, map, take, switchMap, last, timeout, shareReplay, share, publish, refCount, publishReplay } from "rxjs/operators";
+import { ConnectableObservable, from, interval, MonoTypeOperatorFunction, Observable, of, Subject, Subscription, throwError } from "rxjs";
+import { mapTo, delay, map, filter, take, switchMap, last, timeout, shareReplay, share, publish, refCount, publishReplay } from "rxjs/operators";
 
 //const _dbInitialized$$ = interval(1000);
 //const dbInitialized$ = _dbInitialized$$
@@ -57,31 +57,61 @@ if (false) {
   }, 2100)
 }
 
-const waitUntilComplete = function<T>(signal: Observable<any>) {
-  return (source: Observable<T>) => new Observable<T>(subscriber => {
-    signal.subscribe({
-      complete: () => source.subscribe(subscriber),
-      error: err => subscriber.error(err)
+if (false) {
+  const waitUntilComplete = function<T>(signal: Observable<any>) {
+    //console.log('returning new observable...')
+    return (source: ConnectableObservable<T>) => new ConnectableObservable<T>(subscriber => {
+      //console.log('Subscribed to waiting observable!')
+      signal.subscribe({
+        complete: () => {
+          //console.log('inner observable completed!');
+          source.subscribe(subscriber);
+        },
+        error: err => {
+          //console.log('Waited, but error');
+          subscriber.error(err);
+        }
+      });
     });
+  }
+  
+  const delayedObservable = (id: string) => new Observable(subscriber => {
+    console.log(`[${id}] Subscribed to delayed observable!`);
+    subscriber.next();
+    subscriber.complete();
   });
-}
-
-
-const delayedObservable = new Observable(subscriber => {
-  console.log('Subscribed to delayed observable!');
-  subscriber.next();
-  subscriber.complete();
-});
-
-setTimeout(() => console.log('tick 1'), 1000);
-setTimeout(() => console.log('tick 2'), 2000);
-
-delayedObservable
-  .pipe(
-    waitUntilComplete(interval(1000)
-      .pipe(
-        map(v => throwError('new error'))
+  
+  setTimeout(() => console.log('tick 1'), 1000);
+  setTimeout(() => console.log('tick 2'), 2000);
+  
+  // Is error from waitUntilComplete observable passed on?
+  delayedObservable('1')
+    .pipe(
+      waitUntilComplete(
+        interval(100)
+        .pipe(filter(v => v > 11), switchMap(_ => throwError('ERR')))
       )
     )
-  )
-  .subscribe({next: r => console.log('r', r), error: err => console.error('got error', err)});
+    .subscribe({next: r => console.log('r1', r), error: err => console.error('1 got error', err)});
+  
+  // Is the subscription to delayedObservable really waiting for waitUntilComplete?
+  delayedObservable('2')
+    .pipe(
+      waitUntilComplete(
+        interval(1000).pipe(take(2))
+      )
+    )
+    .subscribe({next: r => console.log('r2', r), error: err => console.error('2 got error', err)});
+  
+  // Is the subscription to delayedObservable skipped, if the outer subscription is cancelled while waiting?
+  const subscription3 = delayedObservable('3')
+    .pipe(
+      waitUntilComplete(
+        interval(1000).pipe(take(2))
+      )
+    )
+    .subscribe({next: r => console.log('r3', r), error: err => console.error('3 got error', err)});
+  
+    setTimeout(() => subscription3.unsubscribe(), 1000);
+}
+
